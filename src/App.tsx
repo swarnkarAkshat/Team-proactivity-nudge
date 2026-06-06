@@ -15,29 +15,27 @@ import {
   Mail
 } from 'lucide-react';
 
-interface N8nResponse {
-  summary: string[];
-  priorities: {
-    name: string;
-    priority: string;
-    reason: string;
-    action: string;
-  }[];
-  recommendations: string[];
+interface N8nReportItem {
+  title?: string;
+  description?: string;
+  risk_or_problem?: string;
+  business_impact?: string;
+  estimated_value?: string;
+  expected_outcome?: string;
 }
 
 const WEBHOOK_URL = 'https://n8n.ianman.com/webhook/Team%20proactivity%20nudge';
 
 function App() {
-  const [businessObjective, setBusinessObjective] = useState('Vendor Identification & Management');
-  const [projectCategory, setProjectCategory] = useState('Global Sourcing & Procurement');
-  const [priorityFocus, setPriorityFocus] = useState('Delayed Suppliers');
-  const [region, setRegion] = useState('India');
+  const [businessObjective, setBusinessObjective] = useState('');
+  const [projectCategory, setProjectCategory] = useState('');
+  const [priorityFocus, setPriorityFocus] = useState('');
+  const [region, setRegion] = useState('');
   const [additionalContext, setAdditionalContext] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reportData, setReportData] = useState<N8nResponse | null>(null);
+  const [reportData, setReportData] = useState<N8nReportItem[] | null>(null);
 
   const handleGenerate = async () => {
     setIsLoading(true);
@@ -59,29 +57,68 @@ function App() {
         })
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to generate report');
+      const text = await response.text();
+      let rawData;
+      try {
+        rawData = JSON.parse(text);
+      } catch (e) {
+        // Fallback for raw text or TSV responses
+        const parts = text.split('\t');
+        if (parts.length >= 6) {
+          rawData = {
+            title: parts[0].trim(),
+            description: parts[1].trim(),
+            risk_or_problem: parts[2].trim(),
+            business_impact: parts[3].trim(),
+            estimated_value: parts[4].trim(),
+            expected_outcome: parts[5].trim()
+          };
+        } else {
+          rawData = { title: 'AI Insights', description: text };
+        }
       }
 
-      const rawData = await response.json();
+      // Handle n8n array-wrapped responses or single objects
+      let dataArray: any[] = [];
+      
+      if (Array.isArray(rawData)) {
+        if (rawData.length > 0 && rawData[0].json) {
+          dataArray = rawData.map(item => item.json);
+        } else {
+          dataArray = rawData;
+        }
+      } else if (rawData && typeof rawData === 'object') {
+        if (rawData.data && Array.isArray(rawData.data)) {
+          dataArray = rawData.data;
+        } else {
+          dataArray = [rawData];
+        }
+      }
 
-      // Handle n8n array-wrapped responses (e.g., webhook returning all items)
-      const data = Array.isArray(rawData) ? rawData[0] : rawData;
-
-      // Ensure the required fields exist and are arrays to prevent crashes
-      const parsedData = {
-        summary: Array.isArray(data?.summary) ? data.summary : [],
-        priorities: Array.isArray(data?.priorities) ? data.priorities : [],
-        recommendations: Array.isArray(data?.recommendations) ? data.recommendations : []
+      // Robust case-insensitive mapping
+      const normalizeItem = (item: any): N8nReportItem => {
+        if (!item || typeof item !== 'object') return {};
+        const getVal = (keyStr: string) => {
+          const found = Object.keys(item).find(k => k.toLowerCase().replace(/_/g, '') === keyStr.toLowerCase().replace(/_/g, ''));
+          return found ? item[found] : undefined;
+        };
+        return {
+          title: getVal('title'),
+          description: getVal('description') || getVal('desc'),
+          risk_or_problem: getVal('riskorproblem') || getVal('risk') || getVal('problem'),
+          business_impact: getVal('businessimpact') || getVal('impact'),
+          estimated_value: getVal('estimatedvalue') || getVal('value'),
+          expected_outcome: getVal('expectedoutcome') || getVal('outcome')
+        };
       };
 
-      // If all arrays are empty, the payload structure doesn't match what we expect
-      if (!parsedData.summary.length && !parsedData.priorities.length && !parsedData.recommendations.length) {
-        console.error('Unexpected n8n response structure:', rawData);
-        throw new Error('Received an unexpected data format from the webhook.');
+      const finalData: N8nReportItem[] = dataArray.map(normalizeItem);
+
+      if (!finalData.length || (!finalData[0].title && !finalData[0].description)) {
+        console.warn('Unexpected n8n response structure:', rawData);
       }
 
-      setReportData(parsedData);
+      setReportData(finalData);
     } catch (err) {
       console.error('Error generating report:', err);
       setError('Unable to generate report. Please try again.');
@@ -90,18 +127,7 @@ function App() {
     }
   };
 
-  const priorityColor = (priority: string) => {
-    switch (priority.toLowerCase()) {
-      case 'high':
-        return 'bg-red-100 text-red-700 border-red-200';
-      case 'medium':
-        return 'bg-amber-100 text-amber-700 border-amber-200';
-      case 'low':
-        return 'bg-green-100 text-green-700 border-green-200';
-      default:
-        return 'bg-blue-100 text-blue-700 border-blue-200';
-    }
-  };
+
 
   return (
     <div className="h-screen bg-slate-50 flex flex-col font-sans text-slate-900 overflow-hidden">
@@ -147,11 +173,12 @@ function App() {
                   onChange={(e) => setBusinessObjective(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 block p-2.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <option>Vendor Identification & Management</option>
-                  <option>Quality Control & Inspections</option>
-                  <option>Engineering & Design Support</option>
-                  <option>Logistics & Export Coordination</option>
-                  <option>Cost & Sourcing Optimization</option>
+                  <option value="" disabled>Choose the Business Objective</option>
+                  <option value="Vendor Identification & Management">Vendor Identification & Management</option>
+                  <option value="Quality Control & Inspections">Quality Control & Inspections</option>
+                  <option value="Engineering & Design Support">Engineering & Design Support</option>
+                  <option value="Logistics & Export Coordination">Logistics & Export Coordination</option>
+                  <option value="Cost & Sourcing Optimization">Cost & Sourcing Optimization</option>
                 </select>
               </div>
 
@@ -167,11 +194,12 @@ function App() {
                   onChange={(e) => setProjectCategory(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 block p-2.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <option>Global Sourcing & Procurement</option>
-                  <option>Mechanical & Detail Engineering</option>
-                  <option>Fabrication & Assembly</option>
-                  <option>Reverse & Allied Engineering</option>
-                  <option>Quality Testing & FAT</option>
+                  <option value="" disabled>Choose the Project Category</option>
+                  <option value="Global Sourcing & Procurement">Global Sourcing & Procurement</option>
+                  <option value="Mechanical & Detail Engineering">Mechanical & Detail Engineering</option>
+                  <option value="Fabrication & Assembly">Fabrication & Assembly</option>
+                  <option value="Reverse & Allied Engineering">Reverse & Allied Engineering</option>
+                  <option value="Quality Testing & FAT">Quality Testing & FAT</option>
                 </select>
               </div>
 
@@ -187,11 +215,12 @@ function App() {
                   onChange={(e) => setPriorityFocus(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 block p-2.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <option>Delayed Suppliers</option>
-                  <option>High Value Orders</option>
-                  <option>Critical Deliveries</option>
-                  <option>Pending RFQs</option>
-                  <option>Vendor Escalations</option>
+                  <option value="" disabled>Choose the Priority Focus</option>
+                  <option value="Delayed Suppliers">Delayed Suppliers</option>
+                  <option value="High Value Orders">High Value Orders</option>
+                  <option value="Critical Deliveries">Critical Deliveries</option>
+                  <option value="Pending RFQs">Pending RFQs</option>
+                  <option value="Vendor Escalations">Vendor Escalations</option>
                 </select>
               </div>
 
@@ -207,10 +236,11 @@ function App() {
                   onChange={(e) => setRegion(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 block p-2.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <option>India</option>
-                  <option>Middle East</option>
-                  <option>Europe</option>
-                  <option>Global</option>
+                  <option value="" disabled>Choose the Region</option>
+                  <option value="India">India</option>
+                  <option value="Middle East">Middle East</option>
+                  <option value="Europe">Europe</option>
+                  <option value="Global">Global</option>
                 </select>
               </div>
 
@@ -333,7 +363,7 @@ function App() {
             )}
 
             {/* SUCCESS STATE */}
-            {reportData && !isLoading && (
+            {reportData && !isLoading && reportData.length > 0 && (
               <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
                 <div className="flex items-center justify-between pb-4 border-b border-slate-200">
                   <div>
@@ -346,82 +376,73 @@ function App() {
                   </span>
                 </div>
 
-                {/* 1. Executive Summary */}
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-blue-500" />
-                    Executive Summary
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {reportData?.summary?.map((item, idx) => (
-                      <div key={idx} className="bg-white rounded-xl p-5 border border-slate-100 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-blue-500 rounded-l-xl opacity-0 group-hover:opacity-100 transition-opacity" />
-                        <p className="text-slate-700 font-medium leading-snug">{item}</p>
+                <div className="space-y-8">
+                  {reportData.map((item, idx) => (
+                    <div key={idx} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="bg-slate-50/80 border-b border-slate-200 p-6 flex items-start gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 shadow-inner">
+                          <Target className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-bold text-slate-900 leading-tight mb-2">
+                            {item.title || 'Proactive Intervention Identified'}
+                          </h3>
+                          <p className="text-slate-600 leading-relaxed text-sm">
+                            {item.description || 'No description provided.'}
+                          </p>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
 
-                {/* 2. Top Priorities */}
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                    <AlertCircle className="w-5 h-5 text-amber-500" />
-                    Top Priorities Action Plan
-                  </h3>
-                  <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                    <div className="divide-y divide-slate-100">
-                      {reportData?.priorities?.map((priority, idx) => (
-                        <div key={idx} className="p-5 md:p-6 hover:bg-slate-50 transition-colors">
-                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-600 text-lg">
-                                {priority?.name?.charAt(0) || '?'}
-                              </div>
-                              <h4 className="font-semibold text-slate-900 text-lg">{priority?.name || 'Unknown'}</h4>
-                            </div>
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${priorityColor(priority?.priority || 'Medium')}`}>
-                              {priority?.priority || 'Medium'} Priority
-                            </span>
+                      <div className="p-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Risk / Problem */}
+                          <div className="bg-red-50/50 border border-red-100/50 rounded-xl p-5 hover:shadow-md transition-shadow">
+                            <h4 className="flex items-center gap-2 text-sm font-semibold text-red-800 mb-3">
+                              <AlertCircle className="w-4 h-4" />
+                              Risk or Problem
+                            </h4>
+                            <p className="text-slate-700 text-sm leading-relaxed">
+                              {item.risk_or_problem || 'N/A'}
+                            </p>
                           </div>
-                          <div className="ml-13 space-y-2">
-                            <div className="flex items-start gap-2 text-sm">
-                              <span className="font-medium text-slate-500 w-16 shrink-0">Reason:</span>
-                              <span className="text-slate-800">{priority?.reason || 'No reason provided'}</span>
-                            </div>
-                            <div className="flex items-start gap-2 text-sm bg-blue-50/50 p-3 rounded-lg border border-blue-100 mt-3">
-                              <span className="font-medium text-blue-700 w-16 shrink-0">Action:</span>
-                              <span className="text-blue-900 font-medium flex items-center gap-2">
-                                {priority?.action || 'No action specified'}
-                                <ChevronRight className="w-4 h-4 text-blue-400" />
-                              </span>
-                            </div>
+
+                          {/* Expected Outcome */}
+                          <div className="bg-emerald-50/50 border border-emerald-100/50 rounded-xl p-5 hover:shadow-md transition-shadow">
+                            <h4 className="flex items-center gap-2 text-sm font-semibold text-emerald-800 mb-3">
+                              <CheckCircle2 className="w-4 h-4" />
+                              Expected Outcome
+                            </h4>
+                            <p className="text-slate-700 text-sm leading-relaxed">
+                              {item.expected_outcome || 'N/A'}
+                            </p>
+                          </div>
+
+                          {/* Business Impact */}
+                          <div className="bg-blue-50/50 border border-blue-100/50 rounded-xl p-5 hover:shadow-md transition-shadow">
+                            <h4 className="flex items-center gap-2 text-sm font-semibold text-blue-800 mb-3">
+                              <Briefcase className="w-4 h-4" />
+                              Business Impact
+                            </h4>
+                            <p className="text-slate-700 text-sm leading-relaxed">
+                              {item.business_impact || 'N/A'}
+                            </p>
+                          </div>
+
+                          {/* Estimated Value */}
+                          <div className="bg-amber-50/50 border border-amber-100/50 rounded-xl p-5 hover:shadow-md transition-shadow">
+                            <h4 className="flex items-center gap-2 text-sm font-semibold text-amber-800 mb-3">
+                              <BarChart3 className="w-4 h-4" />
+                              Estimated Value
+                            </h4>
+                            <p className="text-slate-700 text-sm leading-relaxed">
+                              {item.estimated_value || 'N/A'}
+                            </p>
                           </div>
                         </div>
-                      ))}
+                      </div>
                     </div>
-                  </div>
+                  ))}
                 </div>
-
-                {/* 3. AI Recommendations */}
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                    <Bot className="w-5 h-5 text-indigo-500" />
-                    AI Recommendations
-                  </h3>
-                  <div className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl p-6 border border-indigo-100 shadow-inner">
-                    <ul className="space-y-3">
-                      {reportData?.recommendations?.map((rec, idx) => (
-                        <li key={idx} className="flex items-start gap-3">
-                          <div className="mt-0.5 shrink-0 w-5 h-5 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs">
-                            {idx + 1}
-                          </div>
-                          <span className="text-slate-700 font-medium">{rec}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-
               </div>
             )}
 
