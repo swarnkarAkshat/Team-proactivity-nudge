@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import {
-  Bot,
   Send,
   Loader2,
   AlertCircle,
   RefreshCcw,
   CheckCircle2,
-  ChevronRight,
   BarChart3,
   Globe2,
   Briefcase,
